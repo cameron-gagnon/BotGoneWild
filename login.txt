@@ -1,0 +1,3 @@
+[Reddit]
+username = USERNAME
+password = PASSWORD

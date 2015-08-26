@@ -43,16 +43,18 @@ class Comments:
 
                 ID = comment.id
                 
-                if not db.lookup(ID):
+                if not db.lookup_ID(ID):
                     try:
                         self.user = User(self.r, username)
+                        reply_string = self.user.gone_wild_check()
+
                     except exceptions.HTTPError:
-                        log.debug("Error, not an actual username")
+                        reply_string = "Sorry, " + username +\
+                                       " is not a user"
+                        log.warning("Error, not an actual username")
                         continue
                 
-                    reply_string = self.user.gone_wild_check()
                     self.reply(comment, reply_string)
-                    
                     db.insert(ID)
 
 
@@ -87,6 +89,10 @@ class Comments:
            time.sleep(error.sleep_time)
            comment.reply(reply_string)
        
+       except praw.errors.HTTPException as error:
+           log.debug("HTTP Error")
+           log.debug(error)
+
        log.debug("Reply sucessful!")
  
  
@@ -111,7 +117,7 @@ class Database:
         log.debug("Inserted " + str(ID) + " into comment database!")
 
 
-    def lookup(self, ID):
+    def lookup_ID(self, ID):
         """
         See if the ID has already been added to the database.
         """
@@ -197,12 +203,15 @@ class User:
     def format_string(self):
         reply_footer = "\n___\n"\
                        "^| [^About ^me](https://www.reddit.com/r/BotGoneWild/comments/3ifrj5/information_about_botgonewild_here/?ref=share&ref_source=link) "\
-                       "^| [^Contact](https://www.reddit.com/message/compose/?to=camerongagnon) "\
+                       "^| [^code](https://github.com/cameron-gagnon/botgonewild) ^|"\
+                       "^| [^Remove ^me ^from ^your ^queries](https://www.reddit.com/message/compose/?to=BotGoneWild&subject=Blacklist&message=Please%20remove%20me%20from%20your%20queries.) "\
                        '^| ^Syntax: ^"Has ^/u/username ^gone ^wild?" '\
-                       "^| [^code](https://github.com/cameron-gagnon/botgonewild) ^|"
+
+        if self.username.lower() == "botgonewild":
+            self.reply = "(.)(.) \n\n ...Now I have!"
 
         # posted and commented
-        if self.comment and self.submitted:
+        elif self.comment and self.submitted:
             self.reply = "/u/" + self.username +\
                          " has gone wild! They have posted " +\
                          str(self.submitted_num) +\
@@ -273,8 +282,8 @@ def config_logging():
     # add handler to root logger so console && file are written to
     logging.getLogger('').addHandler(console)
     log = logging.getLogger('gonewild')
-#stdout = LoggerWriter(log.debug)
-#stderr = LoggerWriter(log.warning)
+    stdout = LoggerWriter(log.debug)
+    stderr = LoggerWriter(log.warning)
 
 ###############################################################################
 class LoggerWriter:
@@ -313,17 +322,22 @@ def main():
         r = connect()
         
         while True:
-            # get comments from r/all to search through
-            com = Comments("all", r)
-            com.get_comments_to_parse()
-            com.search_comments()
-            log.debug("Sleeping...")
-            time.sleep(30)
+            try:
+                # get comments from r/all to search through
+                com = Comments("all", r)
+                com.get_comments_to_parse()
+                com.search_comments()
+                log.debug("Sleeping...")
+                time.sleep(10)
+        
+            except exceptions.HTTPError as err:
+                log.warning("HTTPError")
+                log.warning(err)
 
     except KeyboardInterrupt:
         log.debug("Exiting")
         exit(0)
-    
+
 
 ###############################################################################
 #### MAIN ####

@@ -242,7 +242,10 @@ def config_logging():
     
     # make it so requests doesn't show up all the time in our output
     logging.getLogger('urllib3').setLevel(logging.WARNING)
-    logging.getLogger('praw').setLevel(logging.WARNING)
+
+    # apparently on AWS-EC2 requests is used instead of urllib3
+    # so we have to silence this again... oh well.
+    logging.getLogger('requests').setLevel(logging.WARNING)
 
     # set format for output to file
     formatFile = logging.Formatter(fmt='%(asctime)-s %(levelname)-6s: '\
@@ -299,7 +302,7 @@ def connect():
     username = config.get("Reddit", "username")
     password = config.get("Reddit", "password")
     
-    r.login(username, password)
+    r.login(username, password, disable_warning=True)
     
     return r
 

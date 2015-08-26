@@ -196,7 +196,7 @@ class User:
 
     def format_string(self):
         reply_footer = "\n___\n"\
-                       "^| [^About ^me](https://github.com/cameron-gagnon/botgonewild/) "\
+                       "^| [^About ^me](https://www.reddit.com/r/BotGoneWild/comments/3ifrj5/information_about_botgonewild_here/?ref=share&ref_source=link) "\
                        "^| [^Contact](https://www.reddit.com/message/compose/?to=camerongagnon) "\
                        '^| ^Syntax: ^"Has ^/u/username ^gone ^wild?" '\
                        "^| [^code](https://github.com/cameron-gagnon/botgonewild) ^|"
@@ -242,7 +242,8 @@ def config_logging():
     
     # make it so requests doesn't show up all the time in our output
     logging.getLogger('urllib3').setLevel(logging.WARNING)
-    logging.getLogger('praw').setLevel(logging.WARNING)
+
+    logging.getLogger('requests').setLevel(logging.WARNING)
 
     # set format for output to file
     formatFile = logging.Formatter(fmt='%(asctime)-s %(levelname)-6s: '\

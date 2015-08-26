@@ -9,5 +9,5 @@ Occasionally the comment will not get replied to. If this is the case, deleting 
 # Suggestions
 If you would like to inspect this on another user, but not in a public manner, simply head over to https://reddit.com/r/test and post in the comments of any of those submissions.
 
-# Feeback
-[Feedback/suggestions](https://reddit.com/r/botgonewild for this bot or any others is gladly welcomed.
+# Feedback
+[Feedback/suggestions](https://reddit.com/r/botgonewild) for this bot or suggestions for any others is gladly welcomed. You can also file a bug on the github page, or [send me a pm](https://www.reddit.com/message/compose/?to=camerongagnon).

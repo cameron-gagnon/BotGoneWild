@@ -41,10 +41,15 @@ class Comments:
             
             if string:
 
+                # if we haven't already seen the comment and the user
+                # is not blacklisted, then we will reply
+                result = db.lookup_user(username)
                 ID = comment.id
                 
-                if not db.lookup_ID(ID):
+                if not db.lookup_ID(ID) and not db.lookup_user(username):
                     try:
+                        log.debug(username + " is whitelisted, performing query")
+                        # gets the users info, then performs the check
                         self.user = User(self.r, username)
                         reply_string = self.user.gone_wild_check()
 
@@ -52,11 +57,18 @@ class Comments:
                         reply_string = "Sorry, " + username +\
                                        " is not a user"
                         log.warning("Error, not an actual username")
-                        continue
-                
-                    self.reply(comment, reply_string)
+
+                    # reply to the intial query comment 
+                    try:
+                        self.reply(comment, reply_string)
+                    except praw.errors.InvalidComment:
+                        log.warning("Comment was deleted")
+                        pass
                     db.insert(ID)
 
+                # user is blacklisted so we do not perform the query
+                else:
+                    log.debug(username + " is blacklisted, not performing query.")
 
     def parse_for_keywords(self, comment):
         # search for keyword string
@@ -75,25 +87,35 @@ class Comments:
         return string, username
 
     def reply(self, comment, reply_string):
-       comment_author = str(comment.author)
-       
-       log.debug("Replying to " + comment_author + " about user: " +\
-             self.user.username)
-       
-       try:
-           comment.reply(reply_string)
-       
-       except praw.errors.RateLimitExceeded as error:
-           log.debug("Rate limit exceeded, must sleep for "
-                     "{} mins".format(float(error.sleep_time / 60)))
-           time.sleep(error.sleep_time)
-           comment.reply(reply_string)
-       
-       except praw.errors.HTTPException as error:
-           log.debug("HTTP Error")
-           log.debug(error)
+        comment_author = str(comment.author)
+        
+        log.debug("Replying to " + comment_author + " about user: " +\
+              self.user.username)
+        
+        msg = Messages(self.r)
+        
+        try:
+            comment.reply(reply_string)
+            # alert user begin queried of query
+            log.debug("Reply sucessful!")
+            msg.notify(self.user.username)
 
-       log.debug("Reply sucessful!")
+        except praw.errors.RateLimitExceeded as error:
+            log.debug("Rate limit exceeded, must sleep for "
+                      "{} mins".format(float(error.sleep_time / 60)))
+            time.sleep(error.sleep_time)
+            # try to reply to the comment again
+            comment.reply(reply_string)
+            log.debug("Reply sucessful!")
+
+            # alert user being queried of query
+            msg.notify(self.user.username)
+
+        except praw.errors.HTTPException as error:
+            log.debug("HTTPError when replying. Sleeping for 10 seconds")
+            log.debug(error)
+            time.sleep(10)
+
  
  
 ###########################################################################
@@ -104,7 +126,8 @@ class Database:
         self.sql = sqlite3.connect('commentID.db')
         self.cur = self.sql.cursor()
 
-        self.cur.execute('CREATE TABLE IF NOT EXISTS comments(ID TEXT)')
+        self.cur.execute('CREATE TABLE IF NOT EXISTS comments(ID TEXT,\
+                          users TEXT)')
         self.sql.commit()
 
     def insert(self, ID):
@@ -125,6 +148,29 @@ class Database:
         result = self.cur.fetchone()
         return result
 
+    def lookup_user(self, user):
+        # result = username if they are in the database
+        # result = None if the user is not in the database
+        user = user.lower()
+        self.cur.execute('SELECT * FROM comments WHERE users=?',[user])
+        result = self.cur.fetchone()
+        return result
+
+    def blacklist_user(self, user):
+        user = user.lower()
+        if not self.lookup_user(user):
+            log.debug("Blacklisting " + user)
+            # add user if they're not in the database
+            self.cur.execute('INSERT INTO comments (users) VALUES(?)', [user])
+            self.sql.commit()
+
+    def whitelist_user(self, user):
+        user = user.lower()
+        if self.lookup_user(user):
+            log.debug("Whitelising " + user)
+            # remove user if they're in the database
+            self.cur.execute('DELETE FROM comments WHERE users=?', [user])
+            self.sql.commit()
 
 ###########################################################################
 class User:
@@ -202,9 +248,12 @@ class User:
 
     def format_string(self):
         reply_footer = "\n___\n"\
-                       "^| [^About ^me](https://www.reddit.com/r/BotGoneWild/comments/3ifrj5/information_about_botgonewild_here/?ref=share&ref_source=link) "\
-                       "^| [^code](https://github.com/cameron-gagnon/botgonewild) ^|"\
-                       "^| [^Remove ^me ^from ^your ^queries](https://www.reddit.com/message/compose/?to=BotGoneWild&subject=Blacklist&message=Please%20remove%20me%20from%20your%20queries.) "\
+                       "^| [^About ^me](https://www.reddit.com/r/BotGoneWild/comments/"\
+                       "3ifrj5/information_about_botgonewild_here/?ref=share&ref_source=link) "\
+                       "^| [^Code](https://github.com/cameron-gagnon/botgonewild) "\
+                       "^| [^Click ^to ^be ^removed ^from ^queries](https://www.reddit.com/"\
+                       "message/compose/?to=BotGoneWild&subject=Blacklist&message=Please%20"\
+                       "remove%20me%20from%20your%20queries.) "\
                        '^| ^Syntax: ^"Has ^/u/username ^gone ^wild?" '\
 
         if self.username.lower() == "botgonewild":
@@ -238,6 +287,95 @@ class User:
 
         self.reply += reply_footer
 
+#############################################################################
+class Messages:
+    
+    remove_sub = "Removal from /u/BotGoneWild's queries"
+    remove_msg = "You have successfully been removed from "\
+                 "/u/BotGoneWild's queries. To undo this change, "\
+                 "please send a PM to /u/BotGoneWild with a "\
+                 "subject of 'whitelist' to be re-added, or, click "\
+                 "[here](https://www.reddit.com/message/compose/"\
+                 "?to=BotGoneWild&subject=Whitelist&message=Please"\
+                 "%20add%20me%20to%20your%20queries.). \n\nThank you."
+    
+    add_sub = "Addition to /u/BotGoneWild's queries"
+    add_msg = "You have successfully been added to "\
+              "/u/BotGoneWild's queries. To undo this change, "\
+              "please send a PM to /u/BotGoneWild with a "\
+              "subject of 'blacklist' to be removed, or, click "\
+              "[here](https://www.reddit.com/message/compose/"\
+              "?to=BotGoneWild&subject=Blacklist&message=Please"\
+              "%20remove%20me%20from%20your%20queries.).\n\nThank you."
+
+    bl_sub = "Already blacklisted"
+    bl_msg = "It appears that you are already blacklisted from "\
+             "/u/BotGoneWild's queries! To become whitelisted, "\
+             "send a PM to /u/BotGoneWild with the subject line "\
+             "'whitelist', or, click [here](https://www.reddit.com"\
+             "/message/compose/?to=BotGoneWild&subject=Whitelist&"\
+             "message=Please%20add%20me%20to%20your%20queries.)."
+
+    wl_sub = "Already whitelisted"
+    wl_msg = "It appears that you are already whitelisted from "\
+             "/u/BotGoneWild's queries! To become blacklisted, "\
+             "send a PM to /u/BotGoneWild with the subject line "\
+             "'blacklist', or, click [here](https://www.reddit.com"\
+             "/message/compose/?to=BotGoneWild&subject=Blacklist&"\
+             "message=Please%20remove%20me%20from%20your%20queries.)."
+    
+    notify_sub = "Your account has been queried"
+    notify_msg = "A user has submitted a query on your account to "\
+                 "see if it has posted or commented in /r/gonewild. "\
+                 "If you would like to disable the ability for others "\
+                 "to perform this query through this bot, please send "\
+                 "a message to /u/BotGoneWild with a subject line of "\
+                 "'blacklist' to be removed, or, click [here](https:"\
+                 "//www.reddit.com/message/compose/?to=BotGoneWild&"\
+                 "subject=Blacklist&message=Please%20remove%20me%20"\
+                 "from%20your%20queries.)."
+
+    def __init__(self, r):
+        self.r = r
+
+    def check_inbox(self):
+        log.debug("Checking inbox...")
+        messages = self.r.get_unread(unset_has_mail = True, update_user = True)
+        db = Database()
+        
+        for msg in messages:
+            sender = str(msg.author)
+            log.debug("Recieved message from " + sender)
+            
+            if msg.subject.lower() == "blacklist":
+                # if they're already blacklisted we tell them
+                if db.lookup_user(sender):
+                    log.debug(sender + " is already blacklisted") 
+                    self.r.send_message(sender, self.bl_sub, self.bl_msg)
+
+                # otherwise we add them to the blacklist    
+                else:
+                    db.blacklist_user(sender)
+                    self.r.send_message(sender, self.remove_sub, self.remove_msg)
+
+            elif msg.subject.lower() == "whitelist":
+                # if they're not in the database then they're whitelisted by
+                # default
+                if not db.lookup_user(sender):
+                    log.debug(sender + " is already whitelisted") 
+                    self.r.send_message(sender, self.wl_sub, self.wl_msg)
+
+                # if they're in the database then we whitelist them by removing
+                # them from the database
+                else:
+                    db.whitelist_user(sender)
+                    self.r.send_message(sender, self.add_sub, self.add_msg)
+
+            # mark the message as read!
+            msg.mark_as_read()
+
+    def notify(self, user):
+        self.r.send_message(user, self.notify_sub, self.notify_msg)
 
 ##############################################################################
 # Makes stdout and stderr print to the logging module
@@ -320,19 +458,24 @@ def connect():
 def main():
     try:
         r = connect()
-        
+        msg_box = Messages(r) 
         while True:
             try:
+                # checks for unread messages and sends
+                # confirmations messages to users who sent them
+                msg_box.check_inbox()
                 # get comments from r/all to search through
                 com = Comments("all", r)
                 com.get_comments_to_parse()
                 com.search_comments()
                 log.debug("Sleeping...")
-                time.sleep(10)
+                time.sleep(25)
         
-            except exceptions.HTTPError as err:
-                log.warning("HTTPError")
+            except (exceptions.HTTPError, exceptions.Timeout, exceptions.ConnectionError) as err:
+                log.warning("HTTPError, sleeping for 10 seconds")
                 log.warning(err)
+                time.sleep(10)
+                continue
 
     except KeyboardInterrupt:
         log.debug("Exiting")

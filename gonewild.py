@@ -6,6 +6,8 @@ import re
 import time
 import logging
 import logging.handlers
+import json
+import requests
 
 from configparser import ConfigParser
 from sys import exit, stdout, stderr
@@ -24,55 +26,59 @@ class Comments:
         self.r = r
 
     def get_comments_to_parse(self):
-        # gets the subreddit, usually /r/all
-        sub = self.r.get_subreddit(self.subreddit)
-        # retrieves the comments from this subreddit
-        # the limit is set to None, but is actually 1024
-        self.comments = sub.get_comments(limit = None)
-    
+        with requests.Session() as s:
+            request = s.get('https://api.pushshift.io/reddit/search?q'\
+                            '=%22BotGoneWild!%22&limit=100')
+            json = request.json()
+            self.comments = json['data']
+
     def search_comments(self):
         log.debug("Searching comments")
         db = Database()
         # goes through each comment and 
         # searches for the keyword string
         for comment in self.comments:
-            string, username = self.parse_for_keywords(comment)
-            
+            # convert regular json comment to praw Comment object
+            comment['_replies'] = '' 
+            comment = praw.objects.Comment(self.r, comment)
+            # parse for them keywords yo!
+            string, username = self.parse_for_keywords(comment.body)
+
             if string:
 
                 # if we haven't already seen the comment and the user
                 # is not blacklisted, then we will reply
-                result = db.lookup_user(username)
                 ID = comment.id
                 
-                if not db.lookup_ID(ID) and not db.lookup_user(username):
-                    try:
-                        log.debug(username + " is whitelisted, performing query")
-                        # gets the users info, then performs the check
-                        self.user = User(self.r, username)
-                        reply_string = self.user.gone_wild_check()
-
-                    except exceptions.HTTPError:
-                        reply_string = "Sorry, " + username +\
-                                       " is not a user"
-                        log.warning("Error, not an actual username")
-
-                    # reply to the intial query comment 
-                    try:
-                        self.reply(comment, reply_string)
-                    except praw.errors.InvalidComment:
-                        log.warning("Comment was deleted")
-                        pass
+                if not db.lookup_ID(ID):
+                    # insert ID of comment into database so we know we searched it 
                     db.insert(ID)
+                    if not db.lookup_user(username):
+                        try:
+                            log.debug(username + " is whitelisted, performing query")
+                            # gets the users info, then performs the check
+                            self.user = User(self.r, username)
+                            reply_string = self.user.gone_wild_check()
+     
+                        except exceptions.HTTPError:
+                            reply_string = "Sorry, " + username +\
+                                           " is not a user"
+                            log.warning("Error, not an actual username")
+     
+                        # reply to the intial query comment 
+                        try:
+                            self.reply(comment, reply_string)
+                        except praw.errors.InvalidComment:
+                            log.warning("Comment was deleted")
 
                 # user is blacklisted so we do not perform the query
-                else:
-                    log.debug(username + " is blacklisted, not performing query.")
+                    else:
+                        log.debug(username + " is blacklisted, not performing query.")
 
     def parse_for_keywords(self, comment):
         # search for keyword string
-        match = re.findall(r'(Has [/]?u/([\w\d_-]*) gone[\s]?wild\?)',
-                           str(comment), re.IGNORECASE)
+        match = re.findall(r'(BotGoneWild! Has [/]?u/([\w\d_-]*) gone[\s]?wild\?)',
+                           str(comment), flags = re.IGNORECASE | re.UNICODE)
         try:
             # match will be None if we don't 
             # find the keyword string
@@ -176,7 +182,7 @@ class User:
 
     def __init__(self, r, user):
 
-        log.debug("Checking " + user)
+#log.debug("Checking " + user)
 
         # gets all the users' info
         self.user = r.get_redditor(user)
@@ -253,7 +259,7 @@ class User:
                        "^| [^Click ^to ^be ^removed ^from ^queries](https://www.reddit.com/"\
                        "message/compose/?to=BotGoneWild&subject=Blacklist&message=Please%20"\
                        "remove%20me%20from%20your%20queries.) "\
-                       '^| ^Syntax: ^"Has ^/u/username ^gone ^wild?" '\
+                       '^| ^Syntax: ^"BotGoneWild! ^Has ^/u/username ^gone ^wild?" '\
 
         if self.username.lower() == "botgonewild":
             self.reply = "(.)(.) \n\n ...Now I have!"
@@ -400,7 +406,7 @@ def config_logging():
     
     # add filehandler so once the filesize reaches 5MB a new file is 
     # created, up to 3 files
-    fileHandle = logging.handlers.RotatingFileHandler("INFO.log",
+    fileHandle = logging.handlers.RotatingFileHandler("crash.log",
                                                       maxBytes=5000000,
                                                       backupCount=5,
                                                       encoding = "utf-8")
@@ -438,7 +444,7 @@ class LoggerWriter:
 
 ###############################################################################
 def connect():
-    log.debug("Logging in...")
+#log.debug("Logging in...")
     
     r = praw.Reddit("browser-based:GoneWild Script:v1.0 (by /u/camerongagnon)")
     
@@ -467,13 +473,12 @@ def main():
                 com = Comments("all", r)
                 com.get_comments_to_parse()
                 com.search_comments()
-                log.debug("Sleeping...")
-                time.sleep(25)
+#log.debug("Sleeping...")
+                time.sleep(30)
         
-            except (exceptions.HTTPError, exceptions.Timeout, exceptions.ConnectionError) as err:
-                log.warning("HTTPError, sleeping for 10 seconds")
-                log.warning(err)
-                time.sleep(10)
+            except (praw.errors.HTTPException, exceptions.Timeout, exceptions.ConnectionError) as err:
+                log.warning("ERROR!!! oh well, prolly a server thing.")
+                time.sleep(30)
                 continue
 
     except KeyboardInterrupt:

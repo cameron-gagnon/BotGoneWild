@@ -1,7 +1,6 @@
 #! /usr/bin/env python3.4
 
 import praw
-import operator
 import sqlite3
 import re
 import time

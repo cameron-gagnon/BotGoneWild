@@ -183,7 +183,7 @@ class User:
 
     def __init__(self, r, user):
 
-        log.debug("Checking " + user)
+#log.debug("Checking " + user)
 
         # gets all the users' info
         self.user = r.get_redditor(user)
@@ -445,7 +445,7 @@ class LoggerWriter:
 
 ###############################################################################
 def connect():
-    log.debug("Logging in...")
+#log.debug("Logging in...")
     
     r = praw.Reddit("browser-based:GoneWild Script:v1.0 (by /u/camerongagnon)")
     
@@ -474,13 +474,12 @@ def main():
                 com = Comments("all", r)
                 com.get_comments_to_parse()
                 com.search_comments()
-                log.debug("Sleeping...")
+#log.debug("Sleeping...")
                 time.sleep(30)
         
             except (praw.errors.HTTPException, exceptions.Timeout, exceptions.ConnectionError) as err:
-                log.warning("HTTPError, sleeping for 10 seconds")
-                log.warning(err)
-                time.sleep(10)
+                log.warning("ERROR!!! oh well, prolly a server thing.")
+                time.sleep(30)
                 continue
 
     except KeyboardInterrupt:

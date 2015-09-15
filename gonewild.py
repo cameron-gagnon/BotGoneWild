@@ -34,7 +34,7 @@ class Comments:
             self.comments = json['data']
 
     def search_comments(self):
-        log.debug("Searching comments")
+#log.debug("Searching comments")
         db = Database()
         # goes through each comment and 
         # searches for the keyword string
@@ -345,7 +345,7 @@ class Messages:
         self.r = r
 
     def check_inbox(self):
-        log.debug("Checking inbox...")
+#log.debug("Checking inbox...")
         messages = self.r.get_unread(unset_has_mail = True, update_user = True)
         db = Database()
         
